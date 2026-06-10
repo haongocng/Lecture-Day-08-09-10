@@ -17,6 +17,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from embedding_backend import get_embedding_backend
+
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent
@@ -39,9 +41,8 @@ def main() -> int:
 
     try:
         import chromadb
-        from chromadb.utils import embedding_functions
     except ImportError:
-        print("Install: pip install chromadb sentence-transformers", file=sys.stderr)
+        print("Install: pip install chromadb cohere", file=sys.stderr)
         return 1
 
     qpath = Path(args.questions)
@@ -52,12 +53,11 @@ def main() -> int:
     questions = json.loads(qpath.read_text(encoding="utf-8"))
     db_path = os.environ.get("CHROMA_DB_PATH", str(ROOT / "chroma_db"))
     collection_name = os.environ.get("CHROMA_COLLECTION", "day10_kb")
-    model_name = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    emb = get_embedding_backend()
 
     client = chromadb.PersistentClient(path=db_path)
-    emb = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
     try:
-        col = client.get_collection(name=collection_name, embedding_function=emb)
+        col = client.get_collection(name=collection_name)
     except Exception as e:
         print(f"Collection error: {e}", file=sys.stderr)
         return 2
@@ -80,7 +80,8 @@ def main() -> int:
         w.writeheader()
         for q in questions:
             text = q["question"]
-            res = col.query(query_texts=[text], n_results=args.top_k)
+            query_embeddings = emb.embed_queries([text])
+            res = col.query(query_embeddings=query_embeddings, n_results=args.top_k)
             docs = (res.get("documents") or [[]])[0]
             metas = (res.get("metadatas") or [[]])[0]
             top_doc = (metas[0] or {}).get("doc_id", "") if metas else ""

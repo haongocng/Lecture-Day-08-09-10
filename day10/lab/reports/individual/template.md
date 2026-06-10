@@ -1,8 +1,8 @@
 # Báo Cáo Cá Nhân — Lab Day 10: Data Pipeline & Observability
 
-**Họ và tên:** ___________  
+**Họ và tên:** Nguyễn Ngọc Hảo  
 **Vai trò:** Ingestion / Cleaning / Embed / Monitoring — ___________  
-**Ngày nộp:** ___________  
+**Ngày nộp:** 10/06/2026  
 **Độ dài yêu cầu:** **400–650 từ** (ngắn hơn Day 09 vì rubric slide cá nhân ~10% — vẫn phải đủ bằng chứng)
 
 ---

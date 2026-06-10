@@ -25,6 +25,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from embedding_backend import get_embedding_backend
 from monitoring.freshness_check import check_manifest_freshness
 from quality.expectations import run_expectations
 from transform.cleaning_rules import clean_rows, load_raw_csv, write_cleaned_csv, write_quarantine_csv
@@ -131,14 +132,17 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_embed_internal(cleaned_csv: Path, *, run_id: str, log) -> bool:
     try:
         import chromadb
-        from chromadb.utils import embedding_functions
     except ImportError:
         log("ERROR: chromadb chưa cài. pip install -r requirements.txt")
         return False
 
     db_path = os.environ.get("CHROMA_DB_PATH", str(ROOT / "chroma_db"))
     collection_name = os.environ.get("CHROMA_COLLECTION", "day10_kb")
-    model_name = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    try:
+        emb = get_embedding_backend()
+    except Exception as e:
+        log(f"ERROR: embedding backend chưa sẵn sàng: {e}")
+        return False
 
     from transform.cleaning_rules import load_raw_csv as load_csv  # same loader
 
@@ -148,8 +152,7 @@ def cmd_embed_internal(cleaned_csv: Path, *, run_id: str, log) -> bool:
         return True
 
     client = chromadb.PersistentClient(path=db_path)
-    emb = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
-    col = client.get_or_create_collection(name=collection_name, embedding_function=emb)
+    col = client.get_or_create_collection(name=collection_name)
 
     ids = [r["chunk_id"] for r in rows]
     # Tránh “mồi cũ” trong top-k: xóa id không còn trong cleaned run này (index = snapshot publish).
@@ -172,8 +175,9 @@ def cmd_embed_internal(cleaned_csv: Path, *, run_id: str, log) -> bool:
         for r in rows
     ]
     # Idempotent: upsert theo chunk_id
-    col.upsert(ids=ids, documents=documents, metadatas=metadatas)
-    log(f"embed_upsert count={len(ids)} collection={collection_name}")
+    embeddings = emb.embed_documents(documents)
+    col.upsert(ids=ids, documents=documents, metadatas=metadatas, embeddings=embeddings)
+    log(f"embed_upsert count={len(ids)} collection={collection_name} provider={emb.provider} model={emb.model}")
     return True
 
 

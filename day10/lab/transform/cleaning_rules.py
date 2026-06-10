@@ -20,6 +20,7 @@ ALLOWED_DOC_IDS = frozenset(
         "sla_p1_2026",
         "it_helpdesk_faq",
         "hr_leave_policy",
+        "access_control_sop",
     }
 )
 
@@ -53,6 +54,10 @@ def _normalize_effective_date(raw: str) -> Tuple[str, str]:
     return "", "invalid_effective_date_format"
 
 
+def _fix_repeated_workday_phrase(text: str) -> str:
+    return re.sub(r"\blàm việc(?:\s+làm việc)+\b", "làm việc", text)
+
+
 def load_raw_csv(path: Path) -> List[Dict[str, str]]:
     rows: List[Dict[str, str]] = []
     with path.open(encoding="utf-8", newline="") as f:
@@ -76,7 +81,10 @@ def clean_rows(
     3) Quarantine: chunk hr_leave_policy có effective_date < 2026-01-01 (bản HR cũ / conflict version).
     4) Quarantine: chunk_text rỗng hoặc effective_date rỗng sau chuẩn hoá.
     5) Loại trùng nội dung chunk_text (giữ bản đầu).
-    6) Fix stale refund: policy_refund_v4 chứa '14 ngày làm việc' → 7 ngày.
+    6) Quarantine: nội dung có marker "Nội dung không rõ ràng" từ export lỗi.
+    7) Quarantine: HR 2025 stale theo nội dung, kể cả khi effective_date bị ghi nhầm sang 2026.
+    8) Chuẩn hoá lỗi lặp cụm "làm việc làm việc" từ sync job.
+    9) Fix stale refund: policy_refund_v4 chứa '14 ngày làm việc' → 7 ngày.
     """
     quarantine: List[Dict[str, Any]] = []
     seen_text: set[str] = set()
@@ -115,13 +123,31 @@ def clean_rows(
             quarantine.append({**raw, "reason": "missing_chunk_text"})
             continue
 
-        key = _norm_text(text)
+        if _norm_text(text).startswith("nội dung không rõ ràng"):
+            quarantine.append({**raw, "reason": "ambiguous_chunk_marker"})
+            continue
+
+        if doc_id == "hr_leave_policy" and (
+            "bản HR 2025" in text or "10 ngày phép năm" in text
+        ):
+            quarantine.append(
+                {
+                    **raw,
+                    "reason": "stale_hr_policy_text",
+                    "effective_date_normalized": eff_norm,
+                }
+            )
+            continue
+
+        normalized_text = _fix_repeated_workday_phrase(text)
+
+        key = _norm_text(normalized_text)
         if key in seen_text:
             quarantine.append({**raw, "reason": "duplicate_chunk_text"})
             continue
         seen_text.add(key)
 
-        fixed_text = text
+        fixed_text = normalized_text
         if apply_refund_window_fix and doc_id == "policy_refund_v4":
             if "14 ngày làm việc" in fixed_text:
                 fixed_text = fixed_text.replace(

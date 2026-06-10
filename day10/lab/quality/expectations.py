@@ -112,5 +112,57 @@ def run_expectations(cleaned_rows: List[Dict[str, Any]]) -> Tuple[List[Expectati
         )
     )
 
+    # E7: các nguồn bắt buộc cho grading phải có mặt sau clean.
+    required_doc_ids = {
+        "policy_refund_v4",
+        "sla_p1_2026",
+        "it_helpdesk_faq",
+        "hr_leave_policy",
+        "access_control_sop",
+    }
+    present_doc_ids = {r.get("doc_id") for r in cleaned_rows}
+    missing_doc_ids = sorted(required_doc_ids - present_doc_ids)
+    ok7 = len(missing_doc_ids) == 0
+    results.append(
+        ExpectationResult(
+            "required_doc_ids_present",
+            ok7,
+            "halt",
+            f"missing_doc_ids={','.join(missing_doc_ids) if missing_doc_ids else 'none'}",
+        )
+    )
+
+    # E8: không còn marker export lỗi "Nội dung không rõ ràng".
+    ambiguous = [
+        r
+        for r in cleaned_rows
+        if "nội dung không rõ ràng" in (r.get("chunk_text") or "").lower()
+    ]
+    ok8 = len(ambiguous) == 0
+    results.append(
+        ExpectationResult(
+            "no_ambiguous_chunk_marker",
+            ok8,
+            "warn",
+            f"ambiguous_chunks={len(ambiguous)}",
+        )
+    )
+
+    # E9: lỗi sync lặp cụm "làm việc" không được lọt vào corpus đã publish.
+    repeated_workday = [
+        r
+        for r in cleaned_rows
+        if re.search(r"\blàm việc\s+làm việc\b", (r.get("chunk_text") or ""), flags=re.I)
+    ]
+    ok9 = len(repeated_workday) == 0
+    results.append(
+        ExpectationResult(
+            "no_repeated_workday_phrase",
+            ok9,
+            "halt",
+            f"violations={len(repeated_workday)}",
+        )
+    )
+
     halt = any(not r.passed and r.severity == "halt" for r in results)
     return results, halt
